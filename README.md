@@ -7,3 +7,7 @@
 ```bash
 python main.py
 ```
+
+# gRPC
+
+`pip install grpcio-tools` - для генерации gRPC

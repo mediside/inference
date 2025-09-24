@@ -1,0 +1,27 @@
+syntax = "proto3";
+package inference;
+option go_package = "inference.v1;inferencev1";
+
+service Inference {
+  rpc DoInference(InferenceRequest) returns (stream InferenceResponse);
+}
+
+message InferenceRequest {
+  string file_path = 1;
+}
+
+message InferenceResponse {
+  oneof payload {
+    Progress progress = 1;
+    Result result = 2;
+  }
+}
+
+message Progress {
+  int32 percent = 1;
+  string step = 2;
+}
+
+message Result {
+  float probability_of_pathology = 1; // вероятность наличия патологии
+}
