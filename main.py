@@ -7,20 +7,25 @@ import inference
 GRPC_HOST = 'localhost'
 GRPC_PORT = 30042
 
-class InferenceServicer(inference_pb2_grpc.InferenceServicer):
+class InferenceService(inference_pb2_grpc.InferenceServicer):
     def DoInference(self, request, context):
-        for percent, step in inference.doInference(request.file_path):
-            if percent < 100:
-                progress = inference_pb2.Progress(percent=percent, step=step)
-                response = inference_pb2.InferenceResponse(progress=progress)
-            else:
-                result = inference_pb2.Result(probability_of_pathology=step)
-                response = inference_pb2.InferenceResponse(result=result)
-            yield response
+        try:
+            for percent, step in inference.doInference(request.file_path):
+                if percent < 100:
+                    progress = inference_pb2.Progress(percent=percent, step=step)
+                    response = inference_pb2.InferenceResponse(progress=progress)
+                else:
+                    result = inference_pb2.Result(probability_of_pathology=step)
+                    response = inference_pb2.InferenceResponse(result=result)
+                yield response
+        except Exception as e:
+            print(e)
+            context.set_details(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    inference_pb2_grpc.add_InferenceServicer_to_server(InferenceServicer(), server)
+    inference_pb2_grpc.add_InferenceServicer_to_server(InferenceService(), server)
     server.add_insecure_port(f'{GRPC_HOST}:{GRPC_PORT}')
     server.start()
     print(f'gRPC server started on port {GRPC_PORT}')

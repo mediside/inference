@@ -11,6 +11,9 @@ STEP_FINISH = 'finish' # скрипт закончил инференс
 def doInference(file_path: str):
     print('Путь к файлу (ZIP-архив):', file_path)
     yield 0, STEP_START
+
+    if random.random() > 0.5:
+        raise Exception('something inference error')
     
     time.sleep(0.5) # читаем файл
     yield 10, STEP_FILE_READ
