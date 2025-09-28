@@ -10,7 +10,7 @@ GRPC_PORT = 30042
 class InferenceService(inference_pb2_grpc.InferenceServicer):
     def DoInference(self, request, context):
         try:
-            for percent, step in inference.doInference(request.file_path):
+            for percent, step in inference.doInference(request.file_path, request.study_id, request.series_id):
                 if percent < 100:
                     progress = inference_pb2.Progress(percent=percent, step=step)
                     response = inference_pb2.InferenceResponse(progress=progress)
