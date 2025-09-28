@@ -8,6 +8,8 @@ service Inference {
 
 message InferenceRequest {
   string file_path = 1;
+  string study_id = 2;
+  string series_id = 3;
 }
 
 message InferenceResponse {

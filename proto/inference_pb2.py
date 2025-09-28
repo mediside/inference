@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15proto/inference.proto\x12\tinference\"%\n\x10InferenceRequest\x12\x11\n\tfile_path\x18\x01 \x01(\t\"l\n\x11InferenceResponse\x12\'\n\x08progress\x18\x01 \x01(\x0b\x32\x13.inference.ProgressH\x00\x12#\n\x06result\x18\x02 \x01(\x0b\x32\x11.inference.ResultH\x00\x42\t\n\x07payload\")\n\x08Progress\x12\x0f\n\x07percent\x18\x01 \x01(\x05\x12\x0c\n\x04step\x18\x02 \x01(\t\"*\n\x06Result\x12 \n\x18probability_of_pathology\x18\x01 \x01(\x02\x32W\n\tInference\x12J\n\x0b\x44oInference\x12\x1b.inference.InferenceRequest\x1a\x1c.inference.InferenceResponse0\x01\x42\x1aZ\x18inference.v1;inferencev1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15proto/inference.proto\x12\tinference\"J\n\x10InferenceRequest\x12\x11\n\tfile_path\x18\x01 \x01(\t\x12\x10\n\x08study_id\x18\x02 \x01(\t\x12\x11\n\tseries_id\x18\x03 \x01(\t\"l\n\x11InferenceResponse\x12\'\n\x08progress\x18\x01 \x01(\x0b\x32\x13.inference.ProgressH\x00\x12#\n\x06result\x18\x02 \x01(\x0b\x32\x11.inference.ResultH\x00\x42\t\n\x07payload\")\n\x08Progress\x12\x0f\n\x07percent\x18\x01 \x01(\x05\x12\x0c\n\x04step\x18\x02 \x01(\t\"*\n\x06Result\x12 \n\x18probability_of_pathology\x18\x01 \x01(\x02\x32W\n\tInference\x12J\n\x0b\x44oInference\x12\x1b.inference.InferenceRequest\x1a\x1c.inference.InferenceResponse0\x01\x42\x1aZ\x18inference.v1;inferencev1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,13 +33,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z\030inference.v1;inferencev1'
   _globals['_INFERENCEREQUEST']._serialized_start=36
-  _globals['_INFERENCEREQUEST']._serialized_end=73
-  _globals['_INFERENCERESPONSE']._serialized_start=75
-  _globals['_INFERENCERESPONSE']._serialized_end=183
-  _globals['_PROGRESS']._serialized_start=185
-  _globals['_PROGRESS']._serialized_end=226
-  _globals['_RESULT']._serialized_start=228
-  _globals['_RESULT']._serialized_end=270
-  _globals['_INFERENCE']._serialized_start=272
-  _globals['_INFERENCE']._serialized_end=359
+  _globals['_INFERENCEREQUEST']._serialized_end=110
+  _globals['_INFERENCERESPONSE']._serialized_start=112
+  _globals['_INFERENCERESPONSE']._serialized_end=220
+  _globals['_PROGRESS']._serialized_start=222
+  _globals['_PROGRESS']._serialized_end=263
+  _globals['_RESULT']._serialized_start=265
+  _globals['_RESULT']._serialized_end=307
+  _globals['_INFERENCE']._serialized_start=309
+  _globals['_INFERENCE']._serialized_end=396
 # @@protoc_insertion_point(module_scope)
