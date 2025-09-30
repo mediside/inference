@@ -15,11 +15,15 @@ from monai.networks.nets import resnet50
 from monai.apps.detection.networks.retinanet_network import RetinaNet
 from monai.apps.detection.networks.retinanet_network import resnet_fpn_feature_extractor
 
+from lung_check import solve_lungs
+
+
 DEVICE = 'cuda'
 MODEL_PATH = 'model.pt'
 
 STEP_START = 'start' # скрипт жив и начал инференс
 STEP_FILE_READ = 'file_read' # скрипт прочитал файл
+STEP_LUNG_CHECK = 'lung_check'
 STEP_PREPROCESSING = 'preprocessing' # скрипт закончил препроцессинг
 STEP_INFERENCE_1 = 'inference_1'
 STEP_INFERENCE_2 = 'inference_2'
@@ -64,11 +68,15 @@ def get_dir(file_path: str, study_id: str, series_id: str) -> str:
 def doInference(file_path: str, study_id: str, series_id: str):
     print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
     yield 0, STEP_START
+    yield 10, STEP_FILE_READ
 
     dycom_dir = get_dir(file_path, study_id, series_id)
-    print(dycom_dir)
 
-    yield 10, STEP_FILE_READ
+    yield 20, STEP_LUNG_CHECK
+
+    lungs_flag = solve_lungs(dycom_dir)
+    if lungs_flag == 'NO':
+        raise ValueError('На КТ снимке не обнаружены легкие')
 
     #  === Backbone (3D ResNet50) ===
     backbone = resnet50(
@@ -107,12 +115,13 @@ def doInference(file_path: str, study_id: str, series_id: str):
         EnsureTyped(keys="series_path"),
     ])
 
-    yield 42, STEP_INFERENCE_1
+    yield 30, STEP_PREPROCESSING
 
     input_image = transforms({'series_path': dycom_dir})['series_path'].bfloat16().unsqueeze(0).to(DEVICE)
     shutil.rmtree(dycom_dir)  # удаляем папку полностью
 
-    
+    yield 40, STEP_INFERENCE_1
+
     probability_of_pathology = torch.sigmoid(feature_extractor(input_image)['pool'].mean())
     print(probability_of_pathology)
     yield 100, probability_of_pathology
