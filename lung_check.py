@@ -271,10 +271,10 @@ def lungs_in_meta(meta: Dict) -> str:
     return "NO"
 
 
-def solve_lungs(path):
-    img_np, meta = monai_load_as_sitk(path)
+def solve_lungs(volume, meta):
+    # img_np, meta = monai_load_as_sitk(path)
     inferer = LMInferer()
-    ans_seg = get_seg_mask(inferer, img_np)
+    ans_seg = get_seg_mask(inferer, volume)
     ans_meta = lungs_in_meta(meta)
     if ans_seg == 'YES' or ans_meta == 'YES':
         return "YES"

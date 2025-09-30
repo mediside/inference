@@ -5,6 +5,9 @@ from pathlib import Path
 import tempfile
 import pydicom
 
+import numpy as np
+
+import io, zipfile
 import torch
 
 from monai.transforms import (
@@ -14,6 +17,7 @@ from monai.transforms import (
 from monai.networks.nets import resnet50
 from monai.apps.detection.networks.retinanet_network import RetinaNet
 from monai.apps.detection.networks.retinanet_network import resnet_fpn_feature_extractor
+from monai.data import PydicomReader, MetaTensor
 
 from lung_check import solve_lungs
 
@@ -30,51 +34,58 @@ STEP_INFERENCE_2 = 'inference_2'
 STEP_FINISH = 'finish' # скрипт закончил инференс
 
 
-def get_dir(file_path: str, study_id: str, series_id: str) -> str:
-    """
-    Находит все DICOM файлы с указанными study_id и series_id внутри file_path,
-    копирует их во временную папку и возвращает путь к ней.
-    """
-    temp_dir = tempfile.mkdtemp(prefix=f"{study_id}_{series_id}_")
-    
-    file_path = Path(file_path)
-    if not file_path.exists():
-        raise ValueError(f"Путь {file_path} не существует")
-    
-    selected_files = []
-    # Рекурсивно проходим по всем файлам
-    for f in file_path.rglob("*"):
-        if f.is_file():
+def load_from_zip(zip_path, study_id, series_id):
+    dicoms = []
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for name in zf.namelist():
             try:
-                ds = pydicom.dcmread(f, stop_before_pixels=True, force=True)
+                ds = pydicom.dcmread(io.BytesIO(zf.read(name)), force=True)
                 if (getattr(ds, "StudyInstanceUID", None) == study_id and
                     getattr(ds, "SeriesInstanceUID", None) == series_id):
-                    selected_files.append(f)
-            except Exception as e:
-                # Пропускаем файлы, которые не являются корректными DICOM
+                    dicoms.append(ds)
+            except Exception:
                 continue
-    
-    if not selected_files:
-        raise ValueError(f"Не найдено файлов для study_id={study_id}, series_id={series_id}")
-    
-    # Копируем во временную папку
-    for f in selected_files:
-        shutil.copy2(f, temp_dir)
-    
-    print(f"Скопировано {len(selected_files)} файлов в {temp_dir}")
-    return temp_dir
+    return dicoms  # список pydicom.Dataset
 
+def dicoms_to_array(dicom_list):
+    """
+    Принимает список pydicom.Dataset и возвращает np.array тома + мета словарь.
+    """
+    # Сортируем срезы по InstanceNumber
+    dicom_list = sorted(dicom_list, key=lambda x: int(getattr(x, "InstanceNumber", 0)))
+    
+    # Строим numpy массив
+    volume = np.stack([d.pixel_array for d in dicom_list], axis=0)
+    
+    # Мета информация
+    meta = {
+        "spacing": (
+            float(getattr(dicom_list[0], "SliceThickness", 1.0)),
+            float(getattr(dicom_list[0], "PixelSpacing", [1.0, 1.0])[0]),
+            float(getattr(dicom_list[0], "PixelSpacing", [1.0, 1.0])[1]),
+        ),
+        "affine": None,  # MONAI сможет сам построить affine из spacing и orientation
+        "original_shape": volume.shape,
+        "dtype": volume.dtype,
+    }
+    
+    return volume, meta
 
 def doInference(file_path: str, study_id: str, series_id: str):
     print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
     yield 0, STEP_START
     yield 10, STEP_FILE_READ
 
-    dycom_dir = get_dir(file_path, study_id, series_id)
+    dicoms = load_from_zip(file_path, study_id, series_id)
+    volume, meta = dicoms_to_array(dicoms)
+
+    data_dict = {
+        "image": MetaTensor(torch.tensor(volume[None, ...], dtype=torch.float32), meta)
+    }
 
     yield 20, STEP_LUNG_CHECK
 
-    lungs_flag = solve_lungs(dycom_dir)
+    lungs_flag = solve_lungs(volume, meta)
     if lungs_flag == 'NO':
         raise ValueError('На КТ снимке не обнаружены легкие')
 
@@ -107,18 +118,17 @@ def doInference(file_path: str, study_id: str, series_id: str):
     feature_extractor = model.feature_extractor.bfloat16().to(DEVICE).eval()
 
     transforms = Compose([
-        LoadImaged(keys="series_path"),
-        EnsureChannelFirstd(keys="series_path"),
-        Orientationd(keys="series_path", axcodes="RAS", labels=None),
-        Spacingd(keys="series_path", pixdim=(0.703125, 0.703125, 5.0)),  # как в конфиге
-        ScaleIntensityRanged(keys="series_path", a_min=-1024, a_max=300, b_min=0.0, b_max=1.0, clip=True),
-        EnsureTyped(keys="series_path"),
+        # LoadImaged(keys="series_path"),
+        EnsureChannelFirstd(keys="image"),
+        Orientationd(keys="image", axcodes="RAS", labels=None),
+        Spacingd(keys="image", pixdim=(0.703125, 0.703125, 5.0)),  # как в конфиге
+        ScaleIntensityRanged(keys="image", a_min=-1024, a_max=300, b_min=0.0, b_max=1.0, clip=True),
+        EnsureTyped(keys="image"),
     ])
 
     yield 30, STEP_PREPROCESSING
 
-    input_image = transforms({'series_path': dycom_dir})['series_path'].bfloat16().unsqueeze(0).to(DEVICE)
-    shutil.rmtree(dycom_dir)  # удаляем папку полностью
+    input_image = transforms(data_dict)['image'].bfloat16().unsqueeze(0).to(DEVICE)
 
     yield 40, STEP_INFERENCE_1
 
