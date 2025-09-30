@@ -1,2 +1,5 @@
 grpcio==1.75.0
 protobuf==6.32.1
+torch==2.8.0
+monai==1.5.1
+pydicom==3.0.1
