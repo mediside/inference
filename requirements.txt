@@ -4,3 +4,4 @@ torch==2.8.0
 monai==1.5.1
 pydicom==3.0.1
 lungmask==0.2.20
+simpleitk==2.5.2

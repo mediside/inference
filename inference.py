@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 import tempfile
 import pydicom
+import zipfile
+import io
 
 import torch
 
@@ -35,42 +37,55 @@ def get_dir(file_path: str, study_id: str, series_id: str) -> str:
     Находит все DICOM файлы с указанными study_id и series_id внутри file_path,
     копирует их во временную папку и возвращает путь к ней.
     """
-    temp_dir = tempfile.mkdtemp(prefix=f"{study_id}_{series_id}_")
+    temp_dir = './tmp/'
     
     file_path = Path(file_path)
     if not file_path.exists():
         raise ValueError(f"Путь {file_path} не существует")
+    else:
+        print(f"Путь {file_path} существует")
     
     selected_files = []
-    # Рекурсивно проходим по всем файлам
-    for f in file_path.rglob("*"):
-        if f.is_file():
-            try:
-                ds = pydicom.dcmread(f, stop_before_pixels=True, force=True)
-                if (getattr(ds, "StudyInstanceUID", None) == study_id and
-                    getattr(ds, "SeriesInstanceUID", None) == series_id):
-                    selected_files.append(f)
-            except Exception as e:
-                # Пропускаем файлы, которые не являются корректными DICOM
-                continue
+
+    # Открываем ZIP-файл с диска в бинарном режиме и читаем содержимое в байты
+    with open(file_path, "rb") as f:
+        zip_data = f.read()
+    
+    zip_buffer = io.BytesIO(zip_data)
+    with zipfile.ZipFile(zip_buffer, "r") as archive:
+        for file_name in archive.namelist():
+            with archive.open(file_name) as file:
+                try:
+                    ds = pydicom.dcmread(file, stop_before_pixels=True, force=True)
+                    if (getattr(ds, "StudyInstanceUID", None) in study_id and
+                        getattr(ds, "SeriesInstanceUID", None) in series_id):
+                        selected_files.append(file)
+                        print("PATHPATH", './tmp/' + file.name.split('/')[-1])
+                        with open(temp_dir + file.name.split('/')[-1], "wb") as out_file:
+                            out_file.write(file.read())
+                except Exception as e:
+                    print(e)
+                    continue # Пропускаем файлы, которые не являются корректными DICOM
     
     if not selected_files:
         raise ValueError(f"Не найдено файлов для study_id={study_id}, series_id={series_id}")
     
     # Копируем во временную папку
-    for f in selected_files:
-        shutil.copy2(f, temp_dir)
     
     print(f"Скопировано {len(selected_files)} файлов в {temp_dir}")
     return temp_dir
 
 
 def doInference(file_path: str, study_id: str, series_id: str):
+    file_path = '../apiservice/' + file_path
+
     print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
     yield 0, STEP_START
     yield 10, STEP_FILE_READ
 
     dycom_dir = get_dir(file_path, study_id, series_id)
+
+    print("DICOMDIR", dycom_dir)
 
     yield 20, STEP_LUNG_CHECK
 
