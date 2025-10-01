@@ -1,12 +1,6 @@
 import argparse
-
 import os 
-import shutil
-from pathlib import Path
 import pydicom
-
-import numpy as np
-
 import io, zipfile
 import torch
 
@@ -92,7 +86,8 @@ def doInference(file_path: str, study_id: str, series_id: str):
     transforms = Compose([
         LoadImaged(keys="image"),
         EnsureChannelFirstd(keys="image"),
-        Orientationd(keys="image", axcodes="RAS", labels=None),
+        # TODO: с этим на сервере 5070 вылетает в ошибку при transforms
+        # Orientationd(keys="image", axcodes="RAS", labels=None),
         Spacingd(keys="image", pixdim=(0.703125, 0.703125, 5.0)),  # как в конфиге
         ScaleIntensityRanged(keys="image", a_min=-1024, a_max=300, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys="image"),
