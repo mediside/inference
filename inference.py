@@ -1,8 +1,8 @@
 import argparse
 
+import os 
 import shutil
 from pathlib import Path
-import tempfile
 import pydicom
 
 import numpy as np
@@ -20,7 +20,7 @@ from monai.apps.detection.networks.retinanet_network import resnet_fpn_feature_e
 from monai.data import PydicomReader, MetaTensor
 
 from lung_check import solve_lungs
-
+from utils import TemporaryFolder
 
 DEVICE = 'cuda'
 MODEL_PATH = 'model.pt'
@@ -34,60 +34,32 @@ STEP_INFERENCE_2 = 'inference_2'
 STEP_FINISH = 'finish' # скрипт закончил инференс
 
 
-def load_from_zip(zip_path, study_id, series_id):
-    dicoms = []
+def extract_dicom_series(zip_path, study_id, series_id, out_dir):
+    """
+    Извлекает DICOM-файлы из архива, фильтруя по StudyInstanceUID и SeriesInstanceUID,
+    и сохраняет их в папку out_dir. Возвращает путь к этой папке.
+    """
+
     with zipfile.ZipFile(zip_path, "r") as zf:
         for name in zf.namelist():
             try:
-                ds = pydicom.dcmread(io.BytesIO(zf.read(name)), force=True)
+                # читаем только заголовок
+                ds = pydicom.dcmread(io.BytesIO(zf.read(name)), stop_before_pixels=True, force=True)
                 if (getattr(ds, "StudyInstanceUID", None) == study_id and
                     getattr(ds, "SeriesInstanceUID", None) == series_id):
-                    dicoms.append(ds)
+                    # сохраняем файл
+                    out_path = out_dir / os.path.basename(name)
+                    with open(out_path, "wb") as f:
+                        f.write(zf.read(name))
             except Exception:
                 continue
-    return dicoms  # список pydicom.Dataset
 
-def dicoms_to_array(dicom_list):
-    """
-    Принимает список pydicom.Dataset и возвращает np.array тома + мета словарь.
-    """
-    # Сортируем срезы по InstanceNumber
-    dicom_list = sorted(dicom_list, key=lambda x: int(getattr(x, "InstanceNumber", 0)))
-    
-    # Строим numpy массив
-    volume = np.stack([d.pixel_array for d in dicom_list], axis=0)
-    
-    # Мета информация
-    meta = {
-        "spacing": (
-            float(getattr(dicom_list[0], "SliceThickness", 1.0)),
-            float(getattr(dicom_list[0], "PixelSpacing", [1.0, 1.0])[0]),
-            float(getattr(dicom_list[0], "PixelSpacing", [1.0, 1.0])[1]),
-        ),
-        "affine": None,  # MONAI сможет сам построить affine из spacing и orientation
-        "original_shape": volume.shape,
-        "dtype": volume.dtype,
-    }
-    
-    return volume, meta
+    return str(out_dir)  # MONAI ждёт путь к папке
+
 
 def doInference(file_path: str, study_id: str, series_id: str):
     print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
     yield 0, STEP_START
-    yield 10, STEP_FILE_READ
-
-    dicoms = load_from_zip(file_path, study_id, series_id)
-    volume, meta = dicoms_to_array(dicoms)
-
-    data_dict = {
-        "image": MetaTensor(torch.tensor(volume[None, ...], dtype=torch.float32), meta)
-    }
-
-    yield 20, STEP_LUNG_CHECK
-
-    lungs_flag = solve_lungs(volume, meta)
-    if lungs_flag == 'NO':
-        raise ValueError('На КТ снимке не обнаружены легкие')
 
     #  === Backbone (3D ResNet50) ===
     backbone = resnet50(
@@ -118,7 +90,7 @@ def doInference(file_path: str, study_id: str, series_id: str):
     feature_extractor = model.feature_extractor.bfloat16().to(DEVICE).eval()
 
     transforms = Compose([
-        # LoadImaged(keys="series_path"),
+        LoadImaged(keys="image"),
         EnsureChannelFirstd(keys="image"),
         Orientationd(keys="image", axcodes="RAS", labels=None),
         Spacingd(keys="image", pixdim=(0.703125, 0.703125, 5.0)),  # как в конфиге
@@ -126,13 +98,24 @@ def doInference(file_path: str, study_id: str, series_id: str):
         EnsureTyped(keys="image"),
     ])
 
-    yield 30, STEP_PREPROCESSING
+    yield 10, STEP_FILE_READ
 
-    input_image = transforms(data_dict)['image'].bfloat16().unsqueeze(0).to(DEVICE)
+    with TemporaryFolder(prefix="dicom_") as temp_dir:
+        dicom_dir = extract_dicom_series(file_path, study_id, series_id, temp_dir)
+        print(dicom_dir)
+        yield 20, STEP_LUNG_CHECK
+
+        lungs_flag = solve_lungs(dicom_dir)
+        if lungs_flag == 'NO':
+            raise ValueError('На КТ снимке не обнаружены легкие')
+
+        yield 30, STEP_PREPROCESSING
+
+        input_image = transforms({'image': dicom_dir})['image'].bfloat16().unsqueeze(0).to(DEVICE)
 
     yield 40, STEP_INFERENCE_1
 
-    probability_of_pathology = torch.sigmoid(feature_extractor(input_image)['pool'].mean())
+    probability_of_pathology = torch.sigmoid(feature_extractor(input_image)['pool'].mean()).item()
     print(probability_of_pathology)
     yield 100, probability_of_pathology
 
@@ -143,21 +126,21 @@ if __name__ == '__main__':
     parser.add_argument(
         "--file_path",
         type=str,
-        default="/app/inference/datasets/MosMedData-LDCT-LUNGCR-type I-v 1/studies/1.2.643.5.1.13.13.12.2.77.8252.00001007020103130905041401130706",  
+        default="/app/inference/datasets/Датасет/norma_anon.zip",  
         help="Корневая папка с DICOM файлами"
     )
     
     parser.add_argument(
         "--study_id",
         type=str,
-        default="1.2.643.5.1.13.13.12.2.77.8252.00001007020103130905041401130706",  
+        default="1.2.276.0.7230010.3.1.2.2462171185.19116.1754559949.863",  
         help="StudyInstanceUID для поиска"
     )
     
     parser.add_argument(
         "--series_id",
         type=str,
-        default="1.2.643.5.1.13.13.12.2.77.8252.02110901050806091404100511030202",  
+        default="1.2.276.0.7230010.3.1.3.2462171185.19116.1754559949.864",  
         help="SeriesInstanceUID для поиска"
     )
     
