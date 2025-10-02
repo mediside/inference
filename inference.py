@@ -22,8 +22,15 @@ from monai.data import PydicomReader, MetaTensor
 from lung_check import solve_lungs
 from utils import TemporaryFolder
 
+import importlib
+my_projection = importlib.import_module("VMPR-UAD.Multi_view_projection.my_projection")
+my_inference = importlib.import_module("VMPR-UAD.Segmentation.my_inference")
+
 DEVICE = 'cuda'
 MODEL_PATH = 'model.pt'
+
+MASK_DIRECTORY = 'mask_directory'
+PROJECTIONS_DIRECTORY = 'projections_directory'
 
 STEP_START = 'start' # скрипт жив и начал инференс
 STEP_FILE_READ = 'file_read' # скрипт прочитал файл
@@ -61,66 +68,39 @@ def doInference(file_path: str, study_id: str, series_id: str):
     print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
     yield 0, STEP_START
 
-    #  === Backbone (3D ResNet50) ===
-    backbone = resnet50(
-        spatial_dims=3,
-        n_input_channels=1,
-        conv1_t_stride=[2, 2, 1],
-        conv1_t_size=[7, 7, 7],
-    )
-
-    # === Feature extractor (ResNet50 + FPN) ===
-    feature_extractor = resnet_fpn_feature_extractor(
-        backbone, 3, False, [1, 2], None
-    )
-
-    # === RetinaNet ===
-    model = RetinaNet(
-        spatial_dims=3,
-        num_classes=1,
-        num_anchors=3,
-        feature_extractor=feature_extractor,
-        size_divisible=[16, 16, 8],
-        use_list_output=False,
-    )
-
-    # === Подгружаем веса ===
-    ckpt = torch.load(MODEL_PATH)
-    model.load_state_dict(ckpt)
-    feature_extractor = model.feature_extractor.bfloat16().to(DEVICE).eval()
-
-    transforms = Compose([
-        LoadImaged(keys="image"),
-        EnsureChannelFirstd(keys="image"),
-        Orientationd(keys="image", axcodes="RAS", labels=None),
-        Spacingd(keys="image", pixdim=(0.703125, 0.703125, 5.0)),  # как в конфиге
-        ScaleIntensityRanged(keys="image", a_min=-1024, a_max=300, b_min=0.0, b_max=1.0, clip=True),
-        EnsureTyped(keys="image"),
-    ])
-
     yield 10, STEP_FILE_READ
 
     with TemporaryFolder(prefix="dicom_") as temp_dir:
         dicom_dir = extract_dicom_series(file_path, study_id, series_id, temp_dir)
-        print(dicom_dir)
+
         yield 20, STEP_LUNG_CHECK
 
-        try: 
-            lungs_flag = solve_lungs(dicom_dir)
-        except:
-            print('Что-то пошло не так при проверке')
-            lungs_flag = 'YES'
+        # try: 
+        #     lungs_flag = solve_lungs(dicom_dir)
+        # except:
+        #     print('Что-то пошло не так при проверке')
+        #     lungs_flag = 'YES'
 
-        if lungs_flag == 'NO':
-            raise ValueError('На КТ снимке не обнаружены легкие')
+        # if lungs_flag == 'NO':
+        #     raise ValueError('На КТ снимке не обнаружены легкие')
 
         yield 30, STEP_PREPROCESSING
+        
+        mask_path = my_inference.segment_case_sitk(
+            dicom_dir,
+            MASK_DIRECTORY,
+        )
+        my_projection.make_projections(
+            dicom_dir,
+            mask_path, 
+            PROJECTIONS_DIRECTORY
+        )
 
-        input_image = transforms({'image': dicom_dir})['image'].bfloat16().unsqueeze(0).to(DEVICE)
+        # input_image = transforms({'image': dicom_dir})['image'].bfloat16().unsqueeze(0).to(DEVICE)
 
     yield 40, STEP_INFERENCE_1
 
-    probability_of_pathology = torch.sigmoid(feature_extractor(input_image)['pool'].mean()).item()
+    probability_of_pathology = torch.rand(1).item() #torch.sigmoid(feature_extractor(input_image)['pool'].mean()).item()
     print(probability_of_pathology)
     yield 100, probability_of_pathology
 

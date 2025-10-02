@@ -49,114 +49,6 @@ def _spacing_direction_from_affine(affine):
     spacing = (float(spacing_cols[0]), float(spacing_cols[1]), float(spacing_cols[2]))
     return spacing, direction
 
-# def monai_load_as_sitk(path_or_obj):
-#     """
-#     Load image with MONAI LoadImage (to get meta) and return (sitk_image, meta_dict).
-#     Input can be a path (file or folder for DICOM series) or any object LoadImage accepts.
-#     """
-#     loader = LoadImage(image_only=False)
-#     img_obj, meta = loader(path_or_obj)
-#     # try to get filename_or_obj (may be string path or list of filenames)
-#     fn = None
-#     for k in ("filename_or_obj", "filename", "orig_filename", "file_name"):
-#         if k in meta:
-#             fn = meta[k]
-#             break
-
-#     # If filename exists and points to file or folder, prefer to read with SimpleITK (preserve metadata)
-#     if fn:
-#         try:
-#             # Some readers return list/tuple of filenames (for DICOM series). Handle that.
-#             if isinstance(fn, (list, tuple)) and len(fn) > 0:
-#                 # If it's a list of file paths, use the first path's folder or the list directly
-#                 # ImageSeriesReader will handle stacking if we give the list of files.
-#                 sitk_img = sitk.ReadImage(list(fn))
-#             elif isinstance(fn, str) and os.path.exists(fn):
-#                 # If it's a file or folder path
-#                 # If it's a folder (DICOM folder), let ImageSeriesReader handle it:
-#                 if os.path.isdir(fn):
-#                     # find series IDs and read first series
-#                     reader = sitk.ImageSeriesReader()
-#                     series_IDs = reader.GetGDCMSeriesIDs(fn)
-#                     if series_IDs:
-#                         series_file_names = reader.GetGDCMSeriesFileNames(fn, series_IDs[0])
-#                         reader.SetFileNames(series_file_names)
-#                         sitk_img = reader.Execute()
-#                     else:
-#                         # maybe folder contains single .nii etc.
-#                         # try reading the folder as a single file path (will fail usually)
-#                         raise RuntimeError("No DICOM series found in folder; falling back to array conversion.")
-#                 else:
-#                     # regular file path (.nii/.nii.gz/.mhd/.nrrd etc.)
-#                     sitk_img = sitk.ReadImage(fn)
-#             else:
-#                 # fn exists but isn't a filesystem path we can use; fallback to array conversion
-#                 sitk_img = None
-#             if sitk_img is not None:
-#                 return sitk_img, meta
-#         except Exception:
-#             # on any error, we will fallback to array conversion below
-#             pass
-
-#     # Fallback: convert loaded array -> SimpleITK
-#     arr = _as_numpy(img_obj)  # expected shape: (C,H,W) or (D,H,W) or (H,W)
-#     # MONAI often returns channel-first arrays (C,H,W[,D]) — try to put into (D,H,W)
-#     # Heuristics:
-#     if arr.ndim == 4 and arr.shape[0] == 1:
-#         # (1, D, H, W) or (1, H, W, D) uncommon; assume (C,D,H,W) -> drop channel
-#         arr = arr[0]
-#     if arr.ndim == 3 and arr.shape[0] <= 4 and arr.shape[0] != arr.shape[1] and arr.shape[0] != arr.shape[2]:
-#         # ambiguous: could be (C,D,H) or (D,H,W). If first dim is small (<=4) and equals channels, assume channel-first
-#         # But safest is: if meta contains "num_channels" or "scalars_per_pixel" use it. For simplicity, we assume arr is (D,H,W)
-#         pass
-
-#     # If arr is (H,W) -> GetImageFromArray will make 2D image
-#     sitk_img = sitk.GetImageFromArray(arr)  # note: this interprets arr as (z,y,x)
-
-#     # Try to set spacing/direction/origin from meta if available (best-effort)
-#     # 1) affine (nibabel) -> compute spacing+direction
-#     if "affine" in meta and meta["affine"] is not None:
-#         try:
-#             spacing, direction = _spacing_direction_from_affine(meta["affine"])
-#             sitk_img.SetSpacing(spacing)
-#             sitk_img.SetDirection(direction)
-#         except Exception:
-#             pass
-
-#     # 2) other common spacing keys
-#     for key in ("spacing", "pixdim", "original_spacing", "spacing_mm"):
-#         if key in meta and meta[key] is not None:
-#             try:
-#                 sp = meta[key]
-#                 sp = tuple(float(x) for x in (sp if len(sp) >= 3 else (sp[0], sp[1], sp[2])))
-#                 # Note: MONAI spacing order might be (z,y,x) or (x,y,z); we try to detect common cases:
-#                 if len(sp) == 3:
-#                     # sitk expects (x,y,z)
-#                     # if meta uses (z,y,x) (nibabel sometimes stores pixdim as [x,y,z] though),
-#                     # we attempt to detect by comparing arr shape and spacing: skip detection complexity for brevity
-#                     sitk_img.SetSpacing((sp[2], sp[1], sp[0]))
-#             except Exception:
-#                 pass
-#             break
-
-#     # 3) origin / direction from meta if present (best-effort)
-#     if "direction" in meta and meta["direction"] is not None:
-#         try:
-#             dir_meta = meta["direction"]
-#             dir_flat = tuple(float(x) for x in np.array(dir_meta).flatten())
-#             if len(dir_flat) == 9:
-#                 sitk_img.SetDirection(dir_flat)
-#         except Exception:
-#             pass
-
-#     if "origin" in meta and meta["origin"] is not None:
-#         try:
-#             origin = tuple(float(x) for x in meta["origin"])
-#             sitk_img.SetOrigin(origin)
-#         except Exception:
-#             pass
-
-#     return sitk_img, meta
 
 def get_seg_mask(inferer: LMInferer, sitk_img) -> str:
     """
@@ -272,7 +164,7 @@ def lungs_in_meta(meta: Dict) -> str:
 
 
 def solve_lungs(path):
-    img_np, meta = LoadImage(image_only=False)(path) # monai_load_as_sitk(path)
+    img_np, meta = LoadImage(image_only=False)(path)
     inferer = LMInferer()
     ans_seg = get_seg_mask(inferer, img_np.numpy())
     ans_meta = lungs_in_meta(meta)

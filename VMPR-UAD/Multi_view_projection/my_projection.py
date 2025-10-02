@@ -2,9 +2,8 @@ import os
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-import SimpleITK as sitk
-from monai.transforms import LoadImage
 
+from utils import load_arr
 
 def crop_area(img, mask):
     # обрезка по непустым областям маски
@@ -38,53 +37,6 @@ def normalize(volume, max=0, min=-800):
     return volume
 
 
-# def load_arr(input_path):
-#     # --- Загружаем изображение через SimpleITK ---
-#     if os.path.isdir(input_path):
-#         # предполагаем DICOM серию
-#         reader = sitk.ImageSeriesReader()
-#         series_ids = reader.GetGDCMSeriesIDs(input_path)
-#         if not series_ids:
-#             raise ValueError(f"No DICOM series found in folder {input_path}")
-#         series_files = reader.GetGDCMSeriesFileNames(input_path, series_ids[0])
-#         reader.SetFileNames(series_files)
-#         sitk_img = reader.Execute()
-#     else:
-#         # файл NIfTI или одиночный DICOM
-#         sitk_img = sitk.ReadImage(input_path)
-
-#     # --- Конвертируем в numpy массив (D,H,W) ---
-#     arr = sitk.GetArrayFromImage(sitk_img).astype(np.float32).squeeze()
-#     return np.transpose(arr, (2, 1, 0))   
-
-import SimpleITK as sitk
-import nibabel as nib
-import os
-import numpy as np
-
-def load_arr(input_path: str) -> np.ndarray:
-    if os.path.isdir(input_path):
-        # DICOM
-        reader = sitk.ImageSeriesReader()
-        series_ids = reader.GetGDCMSeriesIDs(input_path)
-        if not series_ids:
-            raise ValueError(f"No DICOM series found in folder {input_path}")
-        series_files = reader.GetGDCMSeriesFileNames(input_path, series_ids[0])
-        reader.SetFileNames(series_files)
-        sitk_img = reader.Execute()
-        orient_filter = sitk.DICOMOrientImageFilter()
-        orient_filter.SetDesiredCoordinateOrientation('RAS')
-        sitk_img = orient_filter.Execute(sitk_img)
-        arr = sitk.GetArrayFromImage(sitk_img).astype(np.float32)
-        arr = np.transpose(arr, (2,1,0))  # (X,Y,Z)
-    else:
-        # NIfTI
-        img = nib.load(input_path)
-        arr = np.asarray(img.get_fdata(), dtype=np.float32)  # уже (X,Y,Z)
-    return arr
-
-
-
 def make_projections(path_ct, path_mask, save_dir, iter_erode=2):
     """
     Делает MIP-проекции левого и правого лёгкого из КТ и сохраняет PNG.
@@ -93,8 +45,6 @@ def make_projections(path_ct, path_mask, save_dir, iter_erode=2):
 
     os.makedirs(save_dir, exist_ok=True)
     patient_name = os.path.basename(path_ct).replace('.nii.gz', '')
-
-    loader = LoadImage(image_only=False)
 
     # загрузка КТ
     # ct_img, _ = loader(path_ct)
