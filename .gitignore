@@ -1,2 +1,12 @@
 __pycache__
 datasets
+VMPR-UAD/dataset
+VMPR-UAD/mask_directory
+VMPR-UAD/mask_directory
+VMPR-UAD/my_dir
+VMPR-UAD/projection_data
+VMPR-UAD/projections_dir
+VMPR-UAD/projections_directory
+VMPR-UAD/result
+VMPR-UAD/result_map
+VMPR-UAD/segmentation_mask
