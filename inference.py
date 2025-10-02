@@ -10,27 +10,21 @@ import numpy as np
 import io, zipfile
 import torch
 
-from monai.transforms import (
-    Compose, LoadImaged, EnsureChannelFirstd, Orientationd, Spacingd, ScaleIntensityRanged, EnsureTyped
-)
-
-from monai.networks.nets import resnet50
-from monai.apps.detection.networks.retinanet_network import RetinaNet
-from monai.apps.detection.networks.retinanet_network import resnet_fpn_feature_extractor
-from monai.data import PydicomReader, MetaTensor
-
 from lung_check import solve_lungs
 from utils import TemporaryFolder
 
 import importlib
 my_projection = importlib.import_module("VMPR-UAD.Multi_view_projection.my_projection")
 my_inference = importlib.import_module("VMPR-UAD.Segmentation.my_inference")
+test_AD_each_view = importlib.import_module("VMPR-UAD.Anomaly_detection.test_AD_each_view")
+
 
 DEVICE = 'cuda'
 MODEL_PATH = 'model.pt'
 
 MASK_DIRECTORY = 'mask_directory'
 PROJECTIONS_DIRECTORY = 'projections_directory'
+RESULTS_DIRECTORY = 'results'
 
 STEP_START = 'start' # скрипт жив и начал инференс
 STEP_FILE_READ = 'file_read' # скрипт прочитал файл
@@ -64,45 +58,89 @@ def extract_dicom_series(zip_path, study_id, series_id, out_dir):
     return str(out_dir)  # MONAI ждёт путь к папке
 
 
-def doInference(file_path: str, study_id: str, series_id: str):
-    print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
-    yield 0, STEP_START
+def clean_directory(dir_path):
+    """Очищает одну директорию"""
+    if os.path.exists(dir_path):
+        for filename in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f"Ошибка при удалении {file_path}: {e}")
 
-    yield 10, STEP_FILE_READ
-
-    with TemporaryFolder(prefix="dicom_") as temp_dir:
-        dicom_dir = extract_dicom_series(file_path, study_id, series_id, temp_dir)
-
-        yield 20, STEP_LUNG_CHECK
-
-        # try: 
-        #     lungs_flag = solve_lungs(dicom_dir)
-        # except:
-        #     print('Что-то пошло не так при проверке')
-        #     lungs_flag = 'YES'
-
-        # if lungs_flag == 'NO':
-        #     raise ValueError('На КТ снимке не обнаружены легкие')
-
-        yield 30, STEP_PREPROCESSING
+def setup_environment():
+    """Подготавливает окружение: создает и очищает директории"""
+    directories = [MASK_DIRECTORY, PROJECTIONS_DIRECTORY, RESULTS_DIRECTORY]
+    
+    for dir_path in directories:
+        # Создаем директорию если не существует
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
         
-        mask_path = my_inference.segment_case_sitk(
-            dicom_dir,
-            MASK_DIRECTORY,
-        )
-        my_projection.make_projections(
-            dicom_dir,
-            mask_path, 
-            PROJECTIONS_DIRECTORY
-        )
+        # Очищаем директорию
+        clean_directory(dir_path)
+        print(f"Подготовлена директория: {dir_path}")
 
-        # input_image = transforms({'image': dicom_dir})['image'].bfloat16().unsqueeze(0).to(DEVICE)
+def cleanup_environment():
+    """Очищает все рабочие директории"""
+    directories = [MASK_DIRECTORY, PROJECTIONS_DIRECTORY, RESULTS_DIRECTORY]
+    
+    for dir_path in directories:
+        clean_directory(dir_path)
+        print(f"Очищена директория: {dir_path}")
 
-    yield 40, STEP_INFERENCE_1
 
-    probability_of_pathology = torch.rand(1).item() #torch.sigmoid(feature_extractor(input_image)['pool'].mean()).item()
-    print(probability_of_pathology)
-    yield 100, probability_of_pathology
+
+def doInference(file_path: str, study_id: str, series_id: str):
+
+    # Подготовка перед запуском
+    setup_environment()
+
+    try:
+        print(f'filepath: {file_path}, study_id: {study_id}, series_id: {series_id}')
+        yield 0, STEP_START
+
+        yield 10, STEP_FILE_READ
+
+        with TemporaryFolder(prefix="dicom_") as temp_dir:
+            dicom_dir = extract_dicom_series(file_path, study_id, series_id, temp_dir)
+
+            yield 20, STEP_LUNG_CHECK
+
+            try: 
+                lungs_flag = solve_lungs(dicom_dir)
+            except:
+                print('Что-то пошло не так при проверке')
+                lungs_flag = 'YES'
+
+            if lungs_flag == 'NO':
+                raise ValueError('На КТ снимке не обнаружены легкие')
+
+            yield 30, STEP_PREPROCESSING
+            
+            mask_path = my_inference.segment_case_sitk(
+                dicom_dir,
+                MASK_DIRECTORY,
+            )
+            my_projection.make_projections(
+                dicom_dir,
+                mask_path, 
+                PROJECTIONS_DIRECTORY
+            )
+        
+            yield 40, STEP_INFERENCE_1
+
+            scores = test_AD_each_view.main(RESULTS_DIRECTORY, PROJECTIONS_DIRECTORY)
+            anomaly_score = max(scores)
+
+        yield 100, anomaly_score
+
+    finally:
+        # Обязательная очистка после завершения
+        cleanup_environment()
 
     
 if __name__ == '__main__':

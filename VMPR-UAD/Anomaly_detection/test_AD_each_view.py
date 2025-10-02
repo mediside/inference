@@ -11,7 +11,7 @@ import glob
 from PIL import Image
 import pytorch_lightning as pl
 import pickle
-from sampling_methods.kcenter_greedy import kCenterGreedy
+from .sampling_methods.kcenter_greedy import kCenterGreedy
 from sklearn.random_projection import SparseRandomProjection
 from scipy.ndimage import gaussian_filter
 from torchvision import transforms, models
@@ -78,7 +78,7 @@ class KNN(NN):
 def prep_dirs(root):
     # make embeddings dir
     # embeddings_path = os.path.join(root, 'embeddings')
-    embeddings_path = os.path.join('./', 'embeddings', args.category)
+    embeddings_path = os.path.join('./', 'VMPR-UAD/Anomaly_detection/embeddings', args.category)
     # make sample dir
     sample_path = os.path.join(root, 'sample')
     # make source code record dir & copy
@@ -116,7 +116,7 @@ std_train = [0.229, 0.224, 0.225]
 
 
 class MyDataset(Dataset):
-    def __init__(self, root, transform, gt_transform, phase,position):
+    def __init__(self, root, transform, gt_transform, phase, position, data_originpath):
         if phase == 'train':
             self.img_path = os.path.join(root, 'train')
         else:
@@ -126,6 +126,7 @@ class MyDataset(Dataset):
         self.gt_transform = gt_transform
         self.mode = phase
         self.position = position
+        self.data_originpath = data_originpath
         # load dataset
         self.img_paths, self.gt_paths, self.labels, self.types = self.load_dataset()  # self.labels => good : 0, anomaly : 1
 
@@ -136,8 +137,7 @@ class MyDataset(Dataset):
         tot_labels = []
         tot_types = []
 
-        img_paths = glob.glob(data_originpath + '*'+self.position + '.png')
-
+        img_paths = glob.glob(self.data_originpath + '/*' + self.position + '.png')
 
         img_tot_paths.extend(img_paths)
         gt_tot_paths.extend([0] * len(img_paths))
@@ -165,20 +165,18 @@ class MyDataset(Dataset):
         return img, gt, label, os.path.basename(img_path[:-4]), img_type
 
 
-
-
 def min_max_norm(image):
     a_min, a_max = image.min(), image.max()
     return (image - a_min) / (a_max - a_min)
 
 
-
 class STPM(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams, savedir, data_originpath):
         super(STPM, self).__init__()
-
+        
         self.save_hyperparameters(hparams)
-
+        self.savedir = savedir
+        self.data_originpath = data_originpath
         self.init_features()
 
         def hook_t(module, input, output):
@@ -196,7 +194,7 @@ class STPM(pl.LightningModule):
         self.init_results_list()
 
         self.data_transforms = transforms.Compose([
-            transforms.Resize((args.input_size, args.input_size), Image.ANTIALIAS),
+            transforms.Resize((args.input_size, args.input_size), Image.BICUBIC),
             transforms.ToTensor(),
             # transforms.CenterCrop(args.input_size),
             transforms.Normalize(mean=mean_train,
@@ -227,7 +225,7 @@ class STPM(pl.LightningModule):
 
     def test_dataloader(self):
         test_datasets = MyDataset(root=os.path.join(args.dataset_path, args.category), transform=self.data_transforms,
-                                  gt_transform=self.gt_transforms, phase='test', position=positions)
+                                  gt_transform=self.gt_transforms, phase='test', position=positions, data_originpath=self.data_originpath)
         test_loader = DataLoader(test_datasets, batch_size=1, shuffle=False,
                                  num_workers=0)  # , pin_memory=True) # only work on batch_size=1, now.
         return test_loader
@@ -242,7 +240,7 @@ class STPM(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):  # Nearest Neighbour Search
         self.embedding_coreset = pickle.load(
-            open(os.path.join('./embeddings', 'embedding_coreset_dataset_' + positions + '.pickle'), 'rb'))
+            open(os.path.join('./VMPR-UAD/Anomaly_detection/embeddings', 'embedding_coreset_dataset_' + positions + '.pickle'), 'rb'))
         x, gt, label, file_name, x_type = batch
         # extract embedding
         features = self(x)
@@ -264,11 +262,10 @@ class STPM(pl.LightningModule):
         w = (1 - (np.max(np.exp(N_b)) / np.sum(np.exp(N_b))))
         # w = 1
         score = w * max(score_patches[:, 0])  # Image-level score
-
         gt_np = gt.cpu().numpy()[0, 0].astype(int)
         anomaly_map_resized = cv2.resize(anomaly_map, (args.input_size, args.input_size))
         anomaly_map_resized_blur = gaussian_filter(anomaly_map_resized, sigma=4)
-        np.save(savedir + file_name[0].split('/')[-1].replace('png', 'npy'), anomaly_map_resized_blur)
+        np.save(self.savedir + '/' + file_name[0].split('/')[-1].replace('png', 'npy'), anomaly_map_resized_blur)
         self.gt_list_px_lvl.extend(gt_np.ravel())
         self.pred_list_px_lvl.extend(anomaly_map_resized_blur.ravel())
         self.gt_list_img_lvl.append(label.cpu().numpy()[0])
@@ -300,22 +297,31 @@ def get_args():
     return args
 
 
-if __name__ == '__main__':
-
+def main(savedir='../result/cammap/', data_originpath = '../projection_data/'):    
     device = 'cpu' #torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+    
+    global args, positions  # теперь эти переменные глобальные
+
     args = get_args()
+
+    scores = []
 
     for position in ['l', 'r']:
         for proj_axis in ['c','s','a']:
-            positions = position+'_' + proj_axis
-            savedir = '../result/cammap/'
+            positions = position + '_' + proj_axis
+
             os.makedirs(savedir, exist_ok=True)
-            data_originpath = '../projection_data/'
             trainer = pl.Trainer.from_argparse_args(args,
                                                     default_root_dir=os.path.join(args.project_root_path,
                                                     args.category),
                                                     max_epochs=args.num_epochs,
                                                     gpus=0)
-            model = STPM(hparams=args)
+            model = STPM(hparams=args, savedir=savedir, data_originpath=data_originpath)
             trainer.test(model)
 
+            scores.extend(model.pred_list_img_lvl)
+
+    return scores
+
+if __name__ == '__main__':
+    main()
