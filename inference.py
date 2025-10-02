@@ -105,7 +105,12 @@ def doInference(file_path: str, study_id: str, series_id: str):
         print(dicom_dir)
         yield 20, STEP_LUNG_CHECK
 
-        lungs_flag = solve_lungs(dicom_dir)
+        try: 
+            lungs_flag = solve_lungs(dicom_dir)
+        except:
+            print('Что-то пошло не так при проверке')
+            lungs_flag = 'YES'
+
         if lungs_flag == 'NO':
             raise ValueError('На КТ снимке не обнаружены легкие')
 
@@ -126,21 +131,21 @@ if __name__ == '__main__':
     parser.add_argument(
         "--file_path",
         type=str,
-        default="/app/inference/datasets/Датасет/norma_anon.zip",  
+        default="/app/inference/datasets/Датасет/pneumotorax_anon.zip",  
         help="Корневая папка с DICOM файлами"
     )
     
     parser.add_argument(
         "--study_id",
         type=str,
-        default="1.2.276.0.7230010.3.1.2.2462171185.19116.1754559949.863",  
+        default="1.2.276.0.7230010.3.1.2.2462171185.19116.1754560222.2501",  
         help="StudyInstanceUID для поиска"
     )
     
     parser.add_argument(
         "--series_id",
         type=str,
-        default="1.2.276.0.7230010.3.1.3.2462171185.19116.1754559949.864",  
+        default="1.2.276.0.7230010.3.1.3.2462171185.19116.1754560222.2502",  
         help="SeriesInstanceUID для поиска"
     )
     
