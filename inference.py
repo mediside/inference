@@ -134,7 +134,7 @@ def doInference(file_path: str, study_id: str, series_id: str):
             yield 40, STEP_INFERENCE_1
 
             scores = test_AD_each_view.main(RESULTS_DIRECTORY, PROJECTIONS_DIRECTORY)
-            anomaly_score = max(scores)
+            anomaly_score = torch.sigmoid(torch.tensor(max(scores) - 3)*2).item()
 
         yield 100, anomaly_score
 
@@ -149,21 +149,21 @@ if __name__ == '__main__':
     parser.add_argument(
         "--file_path",
         type=str,
-        default="/app/inference/datasets/Датасет/pneumotorax_anon.zip",  
+        default="/app/inference/datasets/Датасет/pneumonia_anon.zip",# "/app/inference/datasets/Датасет/pneumotorax_anon.zip",#'/app/inference/datasets/Датасет/norma_anon.zip' 
         help="Корневая папка с DICOM файлами"
     )
     
     parser.add_argument(
         "--study_id",
         type=str,
-        default="1.2.276.0.7230010.3.1.2.2462171185.19116.1754560222.2501",  
+        default="1.2.276.0.7230010.3.1.2.2462171185.19116.1754559747.125",# '1.2.276.0.7230010.3.1.2.2462171185.19116.1754559949.863'  
         help="StudyInstanceUID для поиска"
     )
     
     parser.add_argument(
         "--series_id",
         type=str,
-        default="1.2.276.0.7230010.3.1.3.2462171185.19116.1754560222.2502",  
+        default="1.2.276.0.7230010.3.1.3.2462171185.19116.1754559747.126", # "1.2.276.0.7230010.3.1.3.2462171185.19116.1754559949.864",  # 
         help="SeriesInstanceUID для поиска"
     )
     
