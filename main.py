@@ -4,7 +4,7 @@ from proto import inference_pb2
 from proto import inference_pb2_grpc
 import inference
 
-GRPC_HOST = 'localhost'
+GRPC_HOST = '0.0.0.0'
 GRPC_PORT = 30042
 
 class InferenceService(inference_pb2_grpc.InferenceServicer):
