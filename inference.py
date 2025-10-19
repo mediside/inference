@@ -248,7 +248,7 @@ def doInference(file_path: str, study_id: str, series_id: str):
                 nr_thr_saving=1,
             )
 
-            yield 50, STEP_PROJECTIONS
+            yield 80, STEP_PROJECTIONS
 
             print("Формируем объединённую маску...")
             mask_upper_right = nib.load(os.path.join(mask_dir, 'lung_upper_lobe_right.nii.gz')).get_fdata()
@@ -264,7 +264,7 @@ def doInference(file_path: str, study_id: str, series_id: str):
             print("Создаём PNG-проекции...")
             make_projections(input_nifti.get_fdata(), combined_mask, name, PROJECTIONS_DIRECTORY)
             
-            yield 40, STEP_INFERENCE
+            yield 90, STEP_INFERENCE
 
             scores = test_AD_each_view.main(RESULTS_DIRECTORY, PROJECTIONS_DIRECTORY)
             anomaly_score = torch.sigmoid(torch.tensor(max(scores)*2.86 - 8.7)).item()
