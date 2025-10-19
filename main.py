@@ -19,7 +19,7 @@ class InferenceService(inference_pb2_grpc.InferenceServicer):
                     response = inference_pb2.InferenceResponse(result=result)
                 yield response
         except Exception as e:
-            print(e)
+            print("Error in DoInference:", e)
             context.set_details(str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
 
