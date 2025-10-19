@@ -1,16 +1,12 @@
 import argparse
-
 import os 
-import shutil
-from pathlib import Path
 import pydicom
-
-import numpy as np
-
 import io, zipfile
 import torch
 
 import cv2
+
+import numpy as np
 
 import matplotlib.pyplot as plt
 
