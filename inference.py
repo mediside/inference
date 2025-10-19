@@ -40,8 +40,9 @@ STEP_START = 'start' # скрипт жив и начал инференс
 STEP_FILE_READ = 'file_read' # скрипт прочитал файл
 STEP_LUNG_CHECK = 'lung_check'
 STEP_PREPROCESSING = 'preprocessing' # скрипт закончил препроцессинг
-STEP_INFERENCE_1 = 'inference_1'
-STEP_INFERENCE_2 = 'inference_2'
+STEP_SEGMENTATION = 'segmentation'
+STEP_PROJECTIONS = 'projections'
+STEP_INFERENCE = 'inference'
 STEP_FINISH = 'finish' # скрипт закончил инференс
 
 
@@ -202,7 +203,6 @@ def cleanup_environment():
         print(f"Очищена директория: {dir_path}")
 
 
-
 def doInference(file_path: str, study_id: str, series_id: str):
 
     # Подготовка перед запуском
@@ -223,6 +223,8 @@ def doInference(file_path: str, study_id: str, series_id: str):
             nifti_path = os.path.join(NIFTI_FOLDER, f"{name}.nii.gz")
             mask_dir = os.path.join(MASK_DIRECTORY, name)
 
+            yield 30, STEP_PREPROCESSING
+
             dicom2nifti.dicom_series_to_nifti(
                 dicom_dir,
                 nifti_path,
@@ -232,7 +234,9 @@ def doInference(file_path: str, study_id: str, series_id: str):
             input_nifti = nib.load(nifti_path) #.get_fdata()
             target_affine = np.eye(3)  # 1мм изотропный воксель
             input_nifti = resample_img(input_nifti, target_affine=target_affine, interpolation='continuous', copy_header=True)
-            
+
+            yield 40, STEP_SEGMENTATION
+
             totalsegmentator(
                 input_nifti,  
                 mask_dir,
@@ -245,6 +249,8 @@ def doInference(file_path: str, study_id: str, series_id: str):
                 ],
                 nr_thr_saving=1,
             )
+
+            yield 50, STEP_PROJECTIONS
 
             print("Формируем объединённую маску...")
             mask_upper_right = nib.load(os.path.join(mask_dir, 'lung_upper_lobe_right.nii.gz')).get_fdata()
@@ -259,10 +265,8 @@ def doInference(file_path: str, study_id: str, series_id: str):
 
             print("Создаём PNG-проекции...")
             make_projections(input_nifti.get_fdata(), combined_mask, name, PROJECTIONS_DIRECTORY)
-
-            yield 30, STEP_PREPROCESSING
             
-            yield 40, STEP_INFERENCE_1
+            yield 40, STEP_INFERENCE
 
             scores = test_AD_each_view.main(RESULTS_DIRECTORY, PROJECTIONS_DIRECTORY)
             anomaly_score = torch.sigmoid(torch.tensor(max(scores)*2.86 - 8.7)).item()
