@@ -3,3 +3,11 @@ protobuf==6.32.1
 monai==1.5.1
 pydicom==3.0.1
 lungmask==0.2.20
+nibabel==5.3.2
+opencv-python-headless==4.12.0.88
+matplotlib==3.10.6
+pytorch-lightning==1.5.10.post0
+scikit-learn==1.7.2
+TotalSegmentator==2.11.0
+dicom2nifti==2.6.2
+nilearn==0.12.1
