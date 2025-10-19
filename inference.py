@@ -13,16 +13,14 @@ import matplotlib.pyplot as plt
 from totalsegmentator.python_api import totalsegmentator
 import nibabel as nib
 
-# from lung_check import solve_lungs
 from utils import TemporaryFolder
 
 import dicom2nifti
+from nilearn.image import resample_img
 
 import importlib
-# my_projection = importlib.import_module("VMPR-UAD.Multi_view_projection.my_projection")
-# my_inference = importlib.import_module("VMPR-UAD.Segmentation.my_inference")
-test_AD_each_view = importlib.import_module("VMPR-UAD.Anomaly_detection.test_AD_each_view")
 
+test_AD_each_view = importlib.import_module("VMPR-UAD.Anomaly_detection.test_AD_each_view")
 
 DEVICE = 'cuda'
 MODEL_PATH = 'model.pt'
@@ -218,9 +216,6 @@ def doInference(file_path: str, study_id: str, series_id: str):
             yield 20, STEP_LUNG_CHECK
             name = os.path.basename(os.path.normpath(dicom_dir))
 
-
-            # PROJECTION_PATH = "projections_dir_resampled_2"
-
             nifti_path = os.path.join(NIFTI_FOLDER, f"{name}.nii.gz")
             mask_dir = os.path.join(MASK_DIRECTORY, name)
 
@@ -229,8 +224,6 @@ def doInference(file_path: str, study_id: str, series_id: str):
                 nifti_path,
                 reorient_nifti=True
             )
-
-            from nilearn.image import resample_img
             
             input_nifti = nib.load(nifti_path) #.get_fdata()
             target_affine = np.eye(3)  # 1мм изотропный воксель
@@ -263,34 +256,12 @@ def doInference(file_path: str, study_id: str, series_id: str):
             print("Создаём PNG-проекции...")
             make_projections(input_nifti.get_fdata(), combined_mask, name, PROJECTIONS_DIRECTORY)
 
-
-            # try: 
-            #     lungs_flag = solve_lungs(dicom_dir)
-            # except:
-            #     print('Что-то пошло не так при проверке')
-            #     lungs_flag = 'YES'
-
-            # if lungs_flag == 'NO':
-            #     raise ValueError('На КТ снимке не обнаружены легкие')
-
             yield 30, STEP_PREPROCESSING
             
-            # mask_path = my_inference.segment_case_sitk(
-            #     dicom_dir,
-            #     MASK_DIRECTORY,
-            # )
-            # my_projection.make_projections(
-            #     dicom_dir,
-            #     mask_path, 
-            #     PROJECTIONS_DIRECTORY
-            # )
-        
             yield 40, STEP_INFERENCE_1
 
             scores = test_AD_each_view.main(RESULTS_DIRECTORY, PROJECTIONS_DIRECTORY)
-            anomaly_score = torch.sigmoid(torch.tensor(max(scores) - 3)*2).item()
-
-            print("ANOMALY SCORE", anomaly_score)
+            anomaly_score = torch.sigmoid(torch.tensor(max(scores)*2.86 - 8.7)).item()
 
         yield 100, anomaly_score
 
