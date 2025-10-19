@@ -4,6 +4,8 @@ import pydicom
 import io, zipfile
 import torch
 
+import shutil
+
 import cv2
 
 import numpy as np
