@@ -298,7 +298,7 @@ def get_args():
 
 
 def main(savedir='../result/cammap/', data_originpath = '../projection_data/'):    
-    device = 'cpu' #torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+    device = 'cuda' #torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
     
     global args, positions  # теперь эти переменные глобальные
 
@@ -315,11 +315,14 @@ def main(savedir='../result/cammap/', data_originpath = '../projection_data/'):
                                                     default_root_dir=os.path.join(args.project_root_path,
                                                     args.category),
                                                     max_epochs=args.num_epochs,
-                                                    gpus=0)
+                                                    gpus=1)
             model = STPM(hparams=args, savedir=savedir, data_originpath=data_originpath)
             trainer.test(model)
 
             scores.extend(model.pred_list_img_lvl)
+
+            # np.save(f"pred_{positions}.npy" , model.pred_list_img_lvl)
+            # np.save(f"paths_{positions}.npy" , model.img_path_list)
 
     return scores
 
