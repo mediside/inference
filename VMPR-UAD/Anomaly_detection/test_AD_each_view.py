@@ -321,8 +321,20 @@ def main(savedir='../result/cammap/', data_originpath = '../projection_data/'):
 
             scores.extend(model.pred_list_img_lvl)
 
-            # np.save(f"pred_{positions}.npy" , model.pred_list_img_lvl)
-            # np.save(f"paths_{positions}.npy" , model.img_path_list)
+    for position in ['bones_axial', 'bones_coronal', 'bones_sagittal']:
+        positions = position
+
+        os.makedirs(savedir, exist_ok=True)
+        trainer = pl.Trainer.from_argparse_args(args,
+                                                default_root_dir=os.path.join(args.project_root_path,
+                                                args.category),
+                                                max_epochs=args.num_epochs,
+                                                gpus=1)
+
+        model = STPM(hparams=args, savedir=savedir, data_originpath=data_originpath)
+        trainer.test(model)
+
+        # scores.extend(model.pred_list_img_lvl)
 
     return scores
 

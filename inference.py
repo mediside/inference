@@ -105,6 +105,154 @@ def make_projections(image, mask, filename, savepath):
         plt.imsave(mask_path, mask, cmap='gray')
 
 
+
+import os
+import numpy as np
+from scipy import ndimage
+import matplotlib.pyplot as plt
+import nibabel as nib
+
+LABEL_MAPPING = {
+    'scapula_left': 71,
+    'scapula_right': 72,
+    'clavicula_left': 73,
+    'clavicula_right': 74,
+    'rib_left_1': 92,
+    'rib_left_6': 97,
+    'rib_right_1': 104,
+    'rib_right_6': 109,
+    'sternum': 116,
+    'costal_cartilages': 117,
+}
+
+BONE_CLASSES = [
+    'clavicula_left', 'clavicula_right',
+    'scapula_left', 'scapula_right',
+    'rib_left_1', 'rib_left_6',
+    'rib_right_1', 'rib_right_6',
+    'sternum', 'costal_cartilages'
+]
+
+import pandas as pd
+
+class_map = pd.Series({
+    10:  'lung_upper_lobe_left',
+    11:  'lung_lower_lobe_left',
+    12:  'lung_upper_lobe_right',
+    13:  'lung_middle_lobe_right',
+    14:  'lung_lower_lobe_right',
+    15:  'esophagus',
+    16:  'trachea',
+    51:  'heart',
+    52:  'aorta',
+    53:  'pulmonary_vein',
+    54:  'brachiocephalic_trunk',
+    55:  'subclavian_artery_right',
+    56:  'subclavian_artery_left',
+    57:  'common_carotid_artery_right',
+    58:  'common_carotid_artery_left',
+    59:  'brachiocephalic_vein_left',
+    60:  'brachiocephalic_vein_right',
+    62:  'superior_vena_cava',
+    71:  'scapula_left',
+    72:  'scapula_right',
+    73:  'clavicula_left',
+    74:  'clavicula_right',
+    79:  'spinal_cord',
+    92:  'rib_left_1',
+    97:  'rib_left_6',
+    104: 'rib_right_1',
+    109: 'rib_right_6',
+    116: 'sternum',
+    117: 'costal_cartilages',
+}, name='TotalSegmentator name')
+
+def make_bones_projections(image_hu, mask, class_map, filename, savepath,
+                                  system_names=None,
+                                  window_center=300, window_width=1000,
+                                  spacing_mm=1.0,
+                                  smoothing_sigma=0.6,
+                                  pad_px=8):
+    """
+    Сохраняет ровно 3 PNG:
+      {filename}_vessel_axial.png
+      {filename}_vessel_coronal.png
+      {filename}_vessel_sagittal.png
+
+    - image_hu: 3D (z,y,x) HU
+    - mask: 3D маска (id классов)
+    - class_map: {id: 'name'}
+    - system_names: list имен, которые относятся к 'vessel' (по умолчанию берем все имена из class_map)
+    """
+    os.makedirs(savepath, exist_ok=True)
+
+    if system_names is None:
+        system_names = list(class_map.values)  # <- важно скобки
+    system_mask3 = np.zeros_like(mask, dtype=np.uint8)
+    for cls_id, cls_name in class_map.items():
+        if cls_name in system_names:
+            system_mask3[mask == cls_id] = 1
+
+    use_mask = system_mask3.copy()
+    mask_is_empty = (use_mask.sum() == 0)
+    if mask_is_empty:
+        print("Warning: mask is empty -> producing full-volume projections.")
+
+    # --- smoothing + window normalization --------------------------------
+    if smoothing_sigma is not None and smoothing_sigma > 0:
+        image_smooth = ndimage.gaussian_filter(image_hu, sigma=smoothing_sigma)
+    else:
+        image_smooth = image_hu.copy()
+
+    lo = window_center - window_width/2.0
+    hi = window_center + window_width/2.0
+    img_norm = (np.clip(image_smooth, lo, hi) - lo) / (hi - lo + 1e-8)
+    img_norm = np.clip(img_norm, 0.0, 1.0)
+
+    # --- helper crop (взято из вашего кода) -------------------------------
+    def crop_to_mask_with_padding_local(img2d, mask2d, pad=8):
+        if mask2d.sum() == 0:
+            return img2d, mask2d
+        ys, xs = np.where(mask2d > 0)
+        ymin, ymax = ys.min(), ys.max()
+        xmin, xmax = xs.min(), xs.max()
+        ymin = max(0, ymin - pad)
+        xmin = max(0, xmin - pad)
+        ymax = min(img2d.shape[0]-1, ymax + pad)
+        xmax = min(img2d.shape[1]-1, xmax + pad)
+        return img2d[ymin:ymax+1, xmin:xmax+1], mask2d[ymin:ymax+1, xmin:xmax+1]
+
+    axes = {'axial':0, 'coronal':1, 'sagittal':2}
+    saved_paths = []
+
+    for view_name, axis in axes.items():
+        # полный MIP по выбранному axis
+        proj = np.max(img_norm, axis=axis)
+        # маска проекции (если маска пустая -> это массив нулей, crop вернёт весь proj)
+        mask_proj = np.max(use_mask, axis=axis).astype(np.uint8)
+
+        # чтобы совпадало с предыдущим отображением
+        proj = proj[::-1, :]
+        mask_proj = mask_proj[::-1, :]
+
+        # crop (если маска пустая — вернётся исходный proj)
+        proj_crop, mask_crop = crop_to_mask_with_padding_local(proj, mask_proj, pad=pad_px)
+
+        # если crop пустой (маловероятно) — используем непотретённый proj
+        if proj_crop.size == 0:
+            proj_crop = proj
+
+        # сохранить как uint8 grayscale
+        out_uint8 = (np.clip(proj_crop, 0.0, 1.0) * 255.0).astype(np.uint8)
+        out_name = f"{filename}_bones_{view_name}.png"
+        out_path = os.path.join(savepath, out_name)
+        plt.imsave(out_path, out_uint8, cmap='gray', vmin=0, vmax=255)
+        saved_paths.append(out_path)
+
+    print("Saved 3 bones projections:", saved_paths)
+    return saved_paths
+
+
 def crop_area(img,mask):
     # l_idx = 0
     # r_idx = mask.shape[1] - 1
@@ -139,8 +287,6 @@ def normalize(volume, max=0,min=-800):
     volume=(volume-min)/(max-min)
 
     return volume
-
-
 
 
 def extract_dicom_series(zip_path, study_id, series_id, out_dir):
@@ -244,7 +390,11 @@ def doInference(file_path: str, study_id: str, series_id: str):
                     'lung_upper_lobe_left', 'lung_lower_lobe_left',
                     'lung_upper_lobe_right', 'lung_middle_lobe_right',
                     'lung_lower_lobe_right'
-                ],
+                ] + ['clavicula_left', 'clavicula_right',
+                     'scapula_left', 'scapula_right',
+                     'rib_left_1', 'rib_left_6',
+                     'rib_right_1', 'rib_right_6',
+                     'sternum', 'costal_cartilages'],
                 nr_thr_saving=1,
             )
 
@@ -263,6 +413,41 @@ def doInference(file_path: str, study_id: str, series_id: str):
 
             print("Создаём PNG-проекции...")
             make_projections(input_nifti.get_fdata(), combined_mask, name, PROJECTIONS_DIRECTORY)
+
+            mask_clavicula_left = nib.load(os.path.join(mask_dir, 'clavicula_left.nii.gz')).get_fdata()
+            mask_clavicula_right = nib.load(os.path.join(mask_dir, 'clavicula_right.nii.gz')).get_fdata()
+            mask_scapula_left = nib.load(os.path.join(mask_dir, 'scapula_left.nii.gz')).get_fdata()
+            mask_scapula_right = nib.load(os.path.join(mask_dir, 'scapula_right.nii.gz')).get_fdata()
+            mask_rib_left_1 = nib.load(os.path.join(mask_dir, 'rib_left_1.nii.gz')).get_fdata()
+            mask_rib_left_6 = nib.load(os.path.join(mask_dir, 'rib_left_6.nii.gz')).get_fdata()
+            mask_rib_right_1 = nib.load(os.path.join(mask_dir, 'rib_right_1.nii.gz')).get_fdata()
+            mask_rib_right_6 = nib.load(os.path.join(mask_dir, 'rib_right_6.nii.gz')).get_fdata()
+            mask_sternum = nib.load(os.path.join(mask_dir, 'sternum.nii.gz')).get_fdata()
+            mask_costal_cartilages = nib.load(os.path.join(mask_dir, 'costal_cartilages.nii.gz')).get_fdata()
+
+            combined_mask_bones = np.zeros_like(mask_clavicula_left)#.astype('int')
+
+            combined_mask_bones[mask_scapula_left > 0] = LABEL_MAPPING['scapula_left']
+            combined_mask_bones[mask_scapula_right > 0] = LABEL_MAPPING['scapula_right']
+            combined_mask_bones[mask_clavicula_left > 0] = LABEL_MAPPING['clavicula_left']
+            combined_mask_bones[mask_clavicula_right > 0] = LABEL_MAPPING['clavicula_right']
+            combined_mask_bones[mask_rib_left_1 > 0] = LABEL_MAPPING['rib_left_1']
+            combined_mask_bones[mask_rib_left_6 > 0] = LABEL_MAPPING['rib_left_6']
+            combined_mask_bones[mask_rib_right_1 > 0] = LABEL_MAPPING['rib_right_1']
+            combined_mask_bones[mask_rib_right_6 > 0] = LABEL_MAPPING['rib_right_6']
+            combined_mask_bones[mask_sternum > 0] = LABEL_MAPPING['sternum']
+            combined_mask_bones[mask_costal_cartilages > 0] = LABEL_MAPPING['costal_cartilages']
+
+            make_bones_projections(
+                    nib.load(nifti_path).get_fdata(), combined_mask_bones, class_map,
+                    system_names=BONE_CLASSES,
+                    filename=name,
+                    savepath=PROJECTIONS_DIRECTORY,
+                    window_center=300, 
+                    window_width=1000,
+                    smoothing_sigma=0.6,
+                    pad_px=8
+                )
             
             yield 90, STEP_INFERENCE
 
